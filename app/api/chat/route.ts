@@ -1,31 +1,22 @@
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import { openai } from '@ai-sdk/openai';
+import { streamText } from 'ai';
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
+export async function POST(req) {
+  const { message } = await req.json();
 
-export async function POST(req: Request) {
-  try {
-    const { message } = await req.json();
-    
-    if(message.toLowerCase().includes("buat gambar")){
-      const prompt = message.replace("buat gambar", "").trim();
-      const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash-exp-image-generation" });
-      const result = await model.generateContent(prompt);
-      const response = await result.response;
-      const imagePart = response.candidates?.[0]?.content?.parts?.find((p:any) => p.inlineData);
-      if(imagePart){
-        return Response.json({ 
-          text: `Nih gambarnya: "${prompt}"`,
-          image: `data:${imagePart.inlineData.mimeType};base64,${imagePart.inlineData.data}`
-        });
-      }
-    }
+  // 1. Cek toxic dulu
+  const moderation = await streamText({
+    model: openai('gpt-4o-mini'),
+    system: 'Kamu adalah moderator. Jawab "TOXIC" jika pesan mengandung hate speech, kalau aman jawab "AMAN"',
+    prompt: message,
+  });
 
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-    const result = await model.generateContent(message);
-    const response = await result.response;
-    return Response.json({ text: response.text() });
+  // 2. Kalau aman, kasih saran balasan
+  const reply = await streamText({
+    model: openai('gpt-4o'),
+    system: 'Kamu adalah asisten yang ramah. Buat 3 opsi balasan singkat untuk pesan anonim ini',
+    prompt: message,
+  });
 
-  } catch (error) {
-    return Response.json({ text: "Error: " + error.message });
-  }
+  return reply.toDataStreamResponse();
 }
